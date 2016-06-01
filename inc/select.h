@@ -10,8 +10,11 @@
 # include <errno.h>
 # include <stdarg.h>
 # include <term.h>
+# include <signal.h>
+# include <errno.h>
 
-# define EXIT_SUCCESS 0
+# define SIGNAL_USED 31
+# define CHAR_BUFSIZE 4
 
 # ifdef DEBUG
 #  define DLOG(...) fprintf (stderr, __VA_ARGS__ )
@@ -40,14 +43,15 @@ typedef struct				s_node {
 
 
 typedef struct				s_list {
-		void		(*next)();
-		void		(*prev)();
 		unsigned int size;
 		t_node		*current;
 }							t_list;	
 
 void set_cursor_position(char *caps[USED], int pos_x, int pos_y);
-
+void resizewindow(void);
+void fatal(char *err_message, void *whats_wrong);
+void reset_input_mode(struct termios *saved_attributes);
+void set_input_mode(void);
 
 
 
