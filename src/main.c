@@ -1,13 +1,55 @@
 #include "../inc/select.h"
 
-void	sigcnt_handler(int s) {
-	(void)s;
-	set_input_mode();
+t_list *getlist_singleton(t_list *l) {
+	static t_list *ll = NULL;
+
+	if (ll == NULL)
+		ll = l;
+	return (ll);
 }
-void	sigstp_handler(int s) {
+
+char **getcaps_singleton(char **caps) {
+	static char **c = NULL;
+
+	if (c == NULL)
+		c = caps;
+	return (c);
+}
+
+struct termios *termcap_singleton(struct termios *t) {
+	static struct termios *tt = NULL;
+	
+	if (tt == NULL) {
+		tt = t;
+	}
+	return (tt);
+}
+
+void	sigcont_handler(int s) {
 	(void)s;
+	set_input_mode(termcap_singleton(NULL));
+	if (signal(SIGTSTP, sigtstp_handler) == SIG_ERR) {
+		perror("signal :");
+		fatal("Error while setting up signals handler\n.", NULL);
+	}
+	print_list(getlist_singleton(NULL));
+}
+
+void	sigtstp_handler(int s) {
+	struct termios *t;
+	char cmd[2];
+
+	(void)s;
+	t = termcap_singleton(NULL);
 	reset_input_mode(NULL);
-	//signal(SIGSTOP, SIG_DFL);
+	if (signal(SIGTSTP, SIG_DFL) == SIG_ERR) {
+		perror("signal :");
+		fatal("Error while setting up signals handler\n.", NULL);
+	}
+	cmd[0] = t->c_cc[VSUSP];
+	cmd[1] = 0;
+	clearscreen();
+	ioctl(0, TIOCSTI, cmd);
 }
 
 void	call_resizewindow(int s) {
@@ -16,6 +58,7 @@ void	call_resizewindow(int s) {
 }
 
 void	fatal_sig(int s) {
+	clearscreen();
 	printf("%d\n", s);
 	fatal("Received signal to end program\n", NULL);
 }
@@ -25,11 +68,7 @@ void handle_signals() {
 
 	i = 1;
 	while (i < 32) {
-		if (i == SIGTSTP)
-			signal(i, sigstp_handler);
-		else if (i == SIGCONT)
-			signal(i, sigcnt_handler);
-		else if (i == SIGWINCH) {
+		if (i == SIGWINCH) {
 			if (signal(SIGWINCH, call_resizewindow) == SIG_ERR)
 				fatal("Error while setting up signals handler ii\n.", NULL);
 		}
@@ -37,9 +76,18 @@ void handle_signals() {
 			perror("signal :");
 			fatal("Error while setting up signals handler\n.", NULL);
 		}
-		else if (i == SIGTTIN)
-			if (signal(i, sigcnt_handler) == SIG_ERR)
-				fatal("Error while setting up signals handler ii\n.", NULL);
+		else if (i == SIGTSTP) {
+			if (signal(SIGTSTP, sigtstp_handler) == SIG_ERR) {
+				perror("signal :");
+				fatal("Error while setting up signals handler\n.", NULL);
+			}
+		}
+		else if (i == SIGCONT) {
+			if (signal(SIGCONT, sigcont_handler) == SIG_ERR) {
+				perror("signal :");
+				fatal("Error while setting up signals handler\n.", NULL);
+			}
+		}
 		++i;
 	}
 }
@@ -51,7 +99,6 @@ void reset_input_mode(struct termios *saved_attributes)
 
 	if (s) {
 		tcsetattr(STDIN_FILENO, TCSANOW, s);
-	//	free(s);
 	}
 	else
 		s = saved_attributes;
@@ -63,31 +110,19 @@ void fatal(char *err_message, void *whats_wrong) {
 	exit(EXIT_FAILURE);
 }
 
-void set_input_mode(void)
+void set_input_mode(struct termios *tattr)
 {
-	struct termios tattr;
-	struct termios *saved_attributes;
-
-	if ((saved_attributes = (struct termios *)malloc(sizeof(struct termios))) == NULL)
-		fatal("Not enought memory for malloc\n", NULL);
-	/* Make sure stdin is a terminal. */
-	if (!isatty(STDIN_FILENO))
-		fatal("Not a terminal.\n", NULL);
-
-	tcgetattr(STDIN_FILENO, saved_attributes);
-	reset_input_mode(saved_attributes);
-
 	/* Set the funny terminal modes. */
-	if (tcgetattr(STDIN_FILENO, &tattr) == -1)
+	if (tcgetattr(STDIN_FILENO, tattr) == -1)
 		perror("tcgetattr : ");
 	//tattr.c_iflag &= ~(IGNBRK|BRKINT|PARMRK|ISTRIP|INLCR|IGNCR|ICRNL|IXON);
 	//tattr.c_oflag &= ~OPOST;
-	tattr.c_lflag &= ~(ICANON|ECHO);
+	tattr->c_lflag &= ~(ICANON|ECHO);
 	//tattr.c_cflag &= ~(CSIZE|PARENB);
 	//tattr.c_cflag |= CS8;
-	tattr.c_cc[VMIN] = 1;
-	tattr.c_cc[VTIME] = 0;
-	if (tcsetattr(STDIN_FILENO, TCSADRAIN, &tattr) == -1)
+	tattr->c_cc[VMIN] = 1;
+	tattr->c_cc[VTIME] = 0;
+	if (tcsetattr(STDIN_FILENO, TCSADRAIN, tattr) == -1)
 		perror("tcsetattr : ");
 }
 
@@ -134,22 +169,23 @@ void	push_node(t_list *l, char *data) {
 	++l->size;
 }
 
-void	print_list(t_list *l, char *caps[USED]) {
+void	print_list(t_list *l) {
 	t_node *n;
 	unsigned int s;
 	int current_position;
 
 	s = 0;
 	n = l->current;
+	tputs(getcaps_singleton(NULL)[CLEAR_SCREEN], 0, myputs);
 	while (s < l->size) {
-		set_cursor_position(caps, 0, s);
+		set_cursor_position(0, s);
 		printf("%s\n", (char *)n->data);
 		if (n->current_position)
 			current_position = s;
 		n = n->next;
 		++s;
 	}
-	set_cursor_position(caps, 0, current_position);
+	set_cursor_position(0, current_position);
 }
 
 t_list *make_list(int ac, char **av) {
@@ -171,11 +207,13 @@ int myputs(int n) {
 	return (write(1, &n, 1));
 }
 
-void clearscreen(char *caps[USED]) {
-	tputs(caps[CLEAR_SCREEN], 0, myputs);
+void clearscreen(void) {
+	tputs(getcaps_singleton(NULL)[CLEAR_SCREEN], 0, myputs);
 }
 
-void set_cursor_position(char *caps[USED], int pos_x, int pos_y) {
+void set_cursor_position(int pos_x, int pos_y) {
+	char **caps = getcaps_singleton(NULL);
+
 	tputs(tgoto(caps[POSITION_CURSOR], pos_x, pos_y), STDIN_FILENO, myputs);
 }
 
@@ -198,32 +236,40 @@ void init_term_capabilities(char *caps[USED]) {
 			fatal("Missing termcap : %s\n", used_caps[i]);
 		++i;
 	}
+	getcaps_singleton(caps);
 }
 
 void	keyboard_hook(char c[CHAR_BUFSIZE]) {
-		write(1, c, 1);
+	write(1, c, 1);
 }
 
 int main(int ac, char **av) {
 	t_list *l;
 	char *caps[USED];
 	char c[CHAR_BUFSIZE];
+	struct termios saved_attributes;
+	struct termios tattr;
 
 	if (ac == 1)
 		return (EXIT_SUCCESS);
-	set_input_mode();
-	init_terminal_data();
-	init_term_capabilities(caps);
-	l = make_list(ac, av);
+	if (!isatty(STDIN_FILENO))
+		fatal("Not a terminal.\n", NULL);
 
-	clearscreen(caps);
-	set_cursor_position(caps, 0, 0);
-	print_list(l, caps);
+	tcgetattr(STDIN_FILENO, &saved_attributes);
+	reset_input_mode(&saved_attributes);
+
+	init_terminal_data();
+	set_input_mode(&tattr);
+	termcap_singleton(&tattr);
+
+	init_term_capabilities(caps);
+
+	l = make_list(ac, av);
+	getlist_singleton(l);
+
+	print_list(l);
 
 	handle_signals();
-
-	tputs(caps[CLEAR_SCREEN], 0, myputs);
-
 
 	while (1)
 	{
@@ -232,6 +278,6 @@ int main(int ac, char **av) {
 	}
 
 	reset_input_mode(NULL);
-	clearscreen(caps);
+	clearscreen();
 	return (EXIT_SUCCESS);
 }

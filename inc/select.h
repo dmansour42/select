@@ -47,11 +47,15 @@ typedef struct				s_list {
 		t_node		*current;
 }							t_list;	
 
-void set_cursor_position(char *caps[USED], int pos_x, int pos_y);
+void set_cursor_position(int pos_x, int pos_y);
 void resizewindow(void);
 void fatal(char *err_message, void *whats_wrong);
 void reset_input_mode(struct termios *saved_attributes);
-void set_input_mode(void);
+void set_input_mode(struct termios *tattr);
+void sigtstp_handler(int s);
+int myputs(int n);
+void print_list(t_list *l);
+void clearscreen(void);
 
 
 
