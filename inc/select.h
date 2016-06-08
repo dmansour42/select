@@ -15,6 +15,14 @@
 
 # define SIGNAL_USED 31
 # define CHAR_BUFSIZE 4
+# define TRUE 1
+# define FALSE 0
+# define UPARROW_CODE "\33\133\101\0"
+# define DOWNARROW_CODE "\33\133\102\0"
+# define RIGHTARROW_CODE "\33\133\103\0"
+# define LEFTARROW_CODE "\33\133\104\0"
+# define ENTER_CODE "\12\0\0\0"
+# define ESC_CODE "\33\0\0\0"
 
 # ifdef DEBUG
 #  define DLOG(...) fprintf (stderr, __VA_ARGS__ )
@@ -31,14 +39,32 @@
 enum {
 	CLEAR_SCREEN,
 	POSITION_CURSOR,
+	HIGHLIGHT_ON,
+	HIGHLIGHT_OFF,
 	USED
 };
+
+enum {
+	UPARROW,
+	DOWNARROW,
+	LEFTARROW,
+	RIGHTARROW,
+	ENTER,
+	ESC,
+	KEYS_USED
+};
+
+typedef struct 				s_keyhooks {
+		char				s[5];
+		void				(*action)(void);
+}							t_keyhooks;
 
 typedef struct				s_node {
 		char			*data;
 		struct s_node	*next;
 		struct s_node	*prev;
 		int				current_position;
+		int				selected;
 }							t_node;	
 
 
@@ -56,7 +82,9 @@ void sigtstp_handler(int s);
 int myputs(int n);
 void print_list(t_list *l);
 void clearscreen(void);
+void highlight(void);
 
+struct termios* termcaps_singleton(struct termios*t);
 
 
 

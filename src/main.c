@@ -148,6 +148,7 @@ void	push_node(t_list *l, char *data) {
 	if ((n = (t_node *)malloc(sizeof(t_node))) == NULL)
 		fatal("Not enought memory\n", NULL);
 	n->data = data;
+	n->selected = FALSE;
 	l->size ? (n->current_position = 0) : (n->current_position = 1);
 	if (l->size == 0) {
 		l->current = n;
@@ -179,7 +180,10 @@ void	print_list(t_list *l) {
 	tputs(getcaps_singleton(NULL)[CLEAR_SCREEN], 0, myputs);
 	while (s < l->size) {
 		set_cursor_position(0, s);
-		printf("%s\n", (char *)n->data);
+		if (n->selected == TRUE)
+			highlight(), printf("%s\n", (char *)n->data), highlight();
+		else
+			printf("%s\n", (char *)n->data);
 		if (n->current_position)
 			current_position = s;
 		n = n->next;
@@ -224,13 +228,38 @@ void resizewindow(void) {
 	DLOG("Screen width: %i  Screen height: %i\n", w.ws_col, w.ws_row);
 }
 
+void highlight(void) {
+	char **caps = getcaps_singleton(NULL);
+	static int s = TRUE;
+
+	s == TRUE ? (s = FALSE) : (s = TRUE);
+	if (s == FALSE)
+		tputs(caps[HIGHLIGHT_ON], 0, myputs);
+	else
+		tputs(caps[HIGHLIGHT_OFF], 0, myputs);
+}
+
+t_node *get_current_node(void) {
+	t_list	*l;
+	t_node	*n;
+
+	l = getlist_singleton(NULL);
+	n = l->current;
+	while (n->current_position == FALSE) {
+		n = n->next;
+	}
+	return (n);
+}
+
 void init_term_capabilities(char *caps[USED]) {
 	int i;
 	char *used_caps[USED];
 
 	i = 0;
-	used_caps[0] = "cl";
-	used_caps[1] = "cm";
+	used_caps[CLEAR_SCREEN] = "cl";
+	used_caps[POSITION_CURSOR] = "cm";
+	used_caps[HIGHLIGHT_ON] = "so";
+	used_caps[HIGHLIGHT_OFF] = "se";
 	while (i < USED) {
 		if ((caps[i] = tgetstr(used_caps[i], NULL)) == 0)
 			fatal("Missing termcap : %s\n", used_caps[i]);
@@ -239,13 +268,95 @@ void init_term_capabilities(char *caps[USED]) {
 	getcaps_singleton(caps);
 }
 
-void	keyboard_hook(char c[CHAR_BUFSIZE]) {
-	write(1, c, 1);
+void	uparrow_pressed(void) {
+	t_node *n = get_current_node();
+	
+	n = get_current_node();
+	n->current_position = FALSE;
+	n->prev->current_position = TRUE;
+}
+
+void	downarrow_pressed(void) {
+	t_node *n = get_current_node();
+	
+	n = get_current_node();
+	n->current_position = FALSE;
+	n->next->current_position = TRUE;
+}
+
+void	leftarrow_pressed(void) {
+//	printf("left arrow pressed\n");
+}
+
+void	rightarrow_pressed(void) {
+//	printf("right arrow pressed\n");
+}
+
+void	enter_pressed(void) {
+	t_node *n = get_current_node();
+	
+	n = get_current_node();
+	n->selected == TRUE ? (n->selected = FALSE) : (n->selected = TRUE);
+}
+
+void	esc_pressed(void) {
+	t_list *l;
+	t_node *n;
+	int i;
+
+	l = getlist_singleton(NULL);
+	n = l->current;
+	i = l->size;
+	clearscreen();
+	while (i) {
+		if (l->current->selected == TRUE)
+			printf("%s ", l->current->data);
+		if (n->next)
+			n = n->next;
+		l->current = NULL;
+		free(l->current);
+		l->current = n;
+		--i;
+	}
+	free(l);
+	printf("\n");
+	reset_input_mode(NULL);
+	exit(0);
+}
+
+void	init_keys(t_keyhooks t[KEYS_USED]) {
+	strcpy(t[UPARROW].s, UPARROW_CODE);
+	strcpy(t[DOWNARROW].s, DOWNARROW_CODE);
+	strcpy(t[LEFTARROW].s, LEFTARROW_CODE);
+	strcpy(t[RIGHTARROW].s, RIGHTARROW_CODE);
+	strcpy(t[ENTER].s, ENTER_CODE);
+	strcpy(t[ESC].s, ESC_CODE);
+	t[UPARROW].action = uparrow_pressed;
+	t[DOWNARROW].action = downarrow_pressed;
+	t[LEFTARROW].action = leftarrow_pressed;
+	t[RIGHTARROW].action = rightarrow_pressed;
+	t[ENTER].action = enter_pressed;
+	t[ESC].action = esc_pressed;
+}
+
+void	keyboard_hook(char c[CHAR_BUFSIZE], t_keyhooks k[KEYS_USED]) {
+	int i;
+
+	i= 0;
+	while (i < KEYS_USED) {
+		if (strncmp(k[i].s, c, CHAR_BUFSIZE) == 0) {
+			k[i].action();
+			print_list(getlist_singleton(NULL));
+			return ;
+		}
+		++i;
+	}
 }
 
 int main(int ac, char **av) {
 	t_list *l;
 	char *caps[USED];
+	t_keyhooks keys[KEYS_USED];
 	char c[CHAR_BUFSIZE];
 	struct termios saved_attributes;
 	struct termios tattr;
@@ -263,6 +374,7 @@ int main(int ac, char **av) {
 	termcap_singleton(&tattr);
 
 	init_term_capabilities(caps);
+	init_keys(keys);
 
 	l = make_list(ac, av);
 	getlist_singleton(l);
@@ -273,8 +385,9 @@ int main(int ac, char **av) {
 
 	while (1)
 	{
-		read(STDIN_FILENO, c, 1);
-		keyboard_hook(c);
+		bzero(c, CHAR_BUFSIZE);
+		read(STDIN_FILENO, c, 4);
+		keyboard_hook(c, keys);
 	}
 
 	reset_input_mode(NULL);

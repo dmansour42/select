@@ -1,5 +1,5 @@
 CC					=gcc
-CFLAGS				=-Wall -Wextra -Werror -D DEBUG
+CFLAGS				=-Wall -Wextra -Werror -g -D DEBUG
 LDFLAGS				=-ltermcap
 NAME				=ft_select
 SRCDIR				=src/
