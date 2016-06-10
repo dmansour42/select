@@ -69,7 +69,7 @@ typedef struct				s_node {
 
 
 typedef struct				s_list {
-		unsigned int size;
+		int size;
 		t_node		*current;
 }							t_list;	
 
@@ -83,6 +83,8 @@ int myputs(int n);
 void print_list(t_list *l);
 void clearscreen(void);
 void highlight(void);
+struct winsize *get_window_sizesingleton(struct winsize *w);
+t_list *getlist_singleton(t_list *l);
 
 struct termios* termcaps_singleton(struct termios*t);
 
