@@ -1,12 +1,41 @@
 #include "../inc/select.h"
 
+t_keyhooks *get_keyhookssingleton(t_keyhooks *k) {
+	static t_keyhooks *kk = NULL;
+
+	if (kk == NULL)
+		kk = k;
+	return (kk);
+}
+
+void	windows_to_small(void) {
+	struct winsize *w;
+	static int i = 1;
+	static char *msg = "Windows is too small...";
+	int len_to_print;
+	
+	len_to_print = 22 - (i % 22);
+	w = get_window_sizesingleton(NULL);
+	clearscreen();
+	set_cursor_position(0, 0);
+	if (w->ws_col > len_to_print)
+		write(1, msg + (i % 22), len_to_print);
+	else
+		write(1, msg + (i % 22), w->ws_col);
+	++i;
+	set_cursor_position(0, 0);
+}
+
 int		get_current_positionsingleton(int p) {
 	static int pp = 0;
 	t_list *l;
 
 	l = getlist_singleton(NULL);
-	if (p >= 0)
-		pp = (p % l->size);
+	pp += p;
+	if (pp < 0)
+		pp = l->size - 1;
+	else if (pp == l->size)
+		pp = 0;
 	return (pp);
 }
 
@@ -18,11 +47,12 @@ t_list *getlist_singleton(t_list *l) {
 	return (ll);
 }
 
-char **getcaps_singleton(char **caps) {
-	static char **c = NULL;
+char **getcaps_singleton(void) {
+	static char *c[USED] = {NULL};
 
-	if (c == NULL)
-		c = caps;
+	if (c[0] == NULL) {
+		init_term_capabilities(c);
+	}
 	return (c);
 }
 
@@ -42,7 +72,7 @@ void	sigcont_handler(int s) {
 		perror("signal :");
 		fatal("Error while setting up signals handler\n.", NULL);
 	}
-	print_list(getlist_singleton(NULL));
+	print_list();
 }
 
 void	sigtstp_handler(int s) {
@@ -69,7 +99,7 @@ void	call_resizewindow(int s) {
 
 void	fatal_sig(int s) {
 	clearscreen();
-	printf("%d\n", s);
+	fprintf(stderr, "%d\n", s);
 	fatal("Received signal to end program\n", NULL);
 }
 
@@ -149,7 +179,6 @@ void init_terminal_data()
 		fatal("Could not access the termcap data base.\n", NULL);
 	if (success == 0)
 		fatal("Terminal type `%s' is not defined.\n", termtype);
-	DLOG("terminal tye is : %s\n", termtype);
 }
 
 void	push_node(t_list *l, char *data) {
@@ -158,7 +187,9 @@ void	push_node(t_list *l, char *data) {
 	if ((n = (t_node *)malloc(sizeof(t_node))) == NULL)
 		fatal("Nowt enought memory\n", NULL);
 	n->data = data;
+	n->len = strlen(data);
 	n->selected = FALSE;
+	n->position = 0;
 	l->size ? (n->current_position = 0) : (n->current_position = 1);
 	if (l->size == 0) {
 		l->current = n;
@@ -180,103 +211,108 @@ void	push_node(t_list *l, char *data) {
 	++l->size;
 }
 
-void	print_list(t_list *l) {
+void	delete_node(void) {
+	t_list *l;
+	t_node *n;
+
+	l = getlist_singleton(NULL);
+	n = get_current_node();
+	if (l->size == 1) {
+		fatal("No more elements in the list\n", NULL);
+	}
+
+	n->prev->next = n->next;
+	n->next->prev = n->prev;
+	n->next->current_position = TRUE;
+	if (l->current == n)
+		l->current = n->next;
+	free(n);
+	n = NULL;
+	--l->size;
+}
+
+void print_element(struct winsize *w, t_node *n) {
+	int len_to_print;
+	
+	len_to_print = n->len - (n->position % n->len);
+	w = get_window_sizesingleton(NULL);
+	if (n->len <= w->ws_col) {
+		n->position = 0;
+		write(1, n->data, n->len);
+		return;
+	}
+	if (w->ws_col > len_to_print)
+		write(1, n->data + (n->position % n->len), len_to_print);
+	else
+		write(1, n->data, w->ws_col);
+}
+
+void	print_list() {
+	t_list *l;
 	t_node *n;
 	int s;
 	int current_position;
 	struct winsize *w;
+	int toskip;
 
+	l = getlist_singleton(NULL);
 	n = l->current;
 	s = 0;
-	current_position = get_current_positionsingleton(-1);
+	current_position = get_current_positionsingleton(0);
 	w = get_window_sizesingleton(NULL);
 	set_cursor_position(0, 0);
-	tputs(getcaps_singleton(NULL)[CLEAR_SCREEN], 0, myputs);
-
-
-	// why ws_row - 2 ? because lat line of window 
-	//if not enought space to print he whole list is a '...'
-	// and just after, an empty line where we cant write.
-	/*
-	if (w->ws_row <= 1 && l->size > 1) {
-		printf("Windows is too small...\n");
+	tputs(getcaps_singleton()[CLEAR_SCREEN], 0, myputs);
+	if (w->ws_row <= 0) {
+		write(1, "Windows is too small...", 22);
 		return ;
 	}
-*/
-	DLOG("row == %d\n", w->ws_row);
-	if (w->ws_row > 2) {
-		while (s < (current_position / w->ws_row - 2) * (w->ws_row - 2)) {
-			++s;
+	toskip = current_position / (w->ws_row) * (w->ws_row);
+
+	if (l->size - 1 <= w->ws_row) {
+		while (s < l->size) {
+			set_cursor_position(0, s);
+			if (n->selected == TRUE) {
+				highlight(); print_element(w, n); highlight();
+				}
+			else
+				print_element(w, n);
 			n = n->next;
+			++s;
 		}
+		set_cursor_position(0, current_position);
+		return ;
+	}
+
+
+	while (s < toskip) {
+		++s;
+		n = n->next;
 	}
 	while (s < l->size) {
-		if (s == w->ws_row - 2 && l->size > 1)
+	// MODIF DE == a >
+		if (s - toskip > w->ws_row && l->size > 1)
+		{
 			break ;
-		set_cursor_position(0, s);
+		}
+		set_cursor_position(0, s - toskip);
 		if (n->selected == TRUE)
-			highlight(), printf("%s\n", n->data), highlight();
+		{
+			highlight(); print_element(w, n); highlight();
+			}
 		else
-			printf("%s\n", n->data);
+			print_element(w, n);
 		n = n->next;
 		++s;
 	}
-	if (s == 0) {
-		printf("Windows is too small...\n");
-	}
-	else if (s < l->size) {
-		DLOG("rows == %d\n", s);
-		set_cursor_position(0, s);
-		printf("...\n");
-		set_cursor_position(0, current_position % (w->ws_row - 2));
-	}
-	else
+	if (s < l->size) {
+		set_cursor_position(0, (w->ws_row));
+		write(1, "...", 3);
 		set_cursor_position(0, current_position % (w->ws_row));
+	}
+	else {
+		set_cursor_position(0, current_position % (w->ws_row));
+	}
 }
-/*
-   void	print_list(t_list *l) {
-   t_node *n;
-   int s;
-   int current_position;
-   struct winsize *w;
-
-   s = 0;
-   current_position = get_current_positionsingleton(-1);
-   n = l->current;
-   w = get_window_sizesingleton(NULL);
-   tputs(getcaps_singleton(NULL)[CLEAR_SCREEN], 0, myputs);
-   if (w->ws_row != 0) {
-   while (s < (current_position / w->ws_row) * w->ws_row) { //avoid % 0 !
-   DLOG("calculated offset %d\n", current_position / w->ws_row * w->ws_row);
-   n = n->next;
-   ++s;
-   }
-   }
-   while (s < l->size) {
-   set_cursor_position(0, s);
-   if (s == (w->ws_row - 2)) {
-   DLOG("rows == %d\n", w->ws_row);
-   printf("...\n");
-   break ;
-   }
-   if (n->selected == TRUE)
-   highlight(), printf("%s\n", n->data), highlight();
-   else
-   printf("%s\n", n->data);
-//		if (n->current_position)
-//			current_position = s;
-n = n->next;
-++s;
-}
-if (w->ws_row != 0 && current_position != 0)
-{
-set_cursor_position(0, (current_position % w->ws_row));
-DLOG("%d\n", (current_position % w->ws_row));
-}
-else
-set_cursor_position(0, 0);
-}
-*/
 
 t_list *make_list(int ac, char **av) {
 	t_list *l;
@@ -298,36 +334,55 @@ int myputs(int n) {
 }
 
 void clearscreen(void) {
-	tputs(getcaps_singleton(NULL)[CLEAR_SCREEN], 0, myputs);
+	tputs(getcaps_singleton()[CLEAR_SCREEN], 0, myputs);
 }
 
 void set_cursor_position(int pos_x, int pos_y) {
-	char **caps = getcaps_singleton(NULL);
+	char **caps = getcaps_singleton();
 
 	tputs(tgoto(caps[POSITION_CURSOR], pos_x, pos_y), STDIN_FILENO, myputs);
 }
 
 void resizewindow(void) {
+	static int action_flag = 0;
 	static struct winsize w = {0, 0, 0, 0};
 	static t_list *l = NULL;
+	t_keyhooks *k;
+	int i;
 
+	i = 0;
+	k = get_keyhookssingleton(NULL);
 	ioctl(STDIN_FILENO, TIOCGWINSZ, &w);
 	get_window_sizesingleton(&w);
+	--w.ws_row;
+	if (w.ws_row <= 0) {
+		k[PRINT].action = windows_to_small;
+		while (i < ESC) {
+			k[i].action = do_nothing;
+			action_flag = FALSE;
+			++i;
+		}
+	}
+	else if (action_flag == FALSE) {
+		reinit_keys(k);
+		action_flag = TRUE;
+	}
 	if (l == NULL)
 		l = getlist_singleton(NULL);
-	print_list(l);
+	print_list();
 }
 
 struct winsize *get_window_sizesingleton(struct winsize *w) {
 	static struct winsize *ww = NULL;
 
-	if (ww == NULL)
+	if (ww == NULL) {
 		ww = w;
+	}
 	return (ww);
 }
 
 void highlight(void) {
-	char **caps = getcaps_singleton(NULL);
+	char **caps = getcaps_singleton();
 	static int s = TRUE;
 
 	s == TRUE ? (s = FALSE) : (s = TRUE);
@@ -359,11 +414,14 @@ void init_term_capabilities(char *caps[USED]) {
 	used_caps[HIGHLIGHT_ON] = "so";
 	used_caps[HIGHLIGHT_OFF] = "se";
 	while (i < USED) {
-		if ((caps[i] = tgetstr(used_caps[i], NULL)) == 0)
+		if ((caps[i] = tgetstr(used_caps[i], NULL)) == NULL)
 			fatal("Missing termcap : %s\n", used_caps[i]);
 		++i;
 	}
-	getcaps_singleton(caps);
+}
+
+void	do_nothing(void) {
+	return ;
 }
 
 void	uparrow_pressed(void) {
@@ -372,26 +430,35 @@ void	uparrow_pressed(void) {
 	n = get_current_node();
 	n->current_position = FALSE;
 	n->prev->current_position = TRUE;
+	get_current_positionsingleton(-1);
 }
 
 void	downarrow_pressed(void) {
-	struct winsize *w;
 	t_node *n;
-	int p;
 
 	n = get_current_node();
-	w = get_window_sizesingleton(NULL);
 	n->current_position = FALSE;
 	n->next->current_position = TRUE;
-	p = get_current_positionsingleton(-1);
-	get_current_positionsingleton(p + 1);
+	get_current_positionsingleton(1);
 }
 
 void	leftarrow_pressed(void) {
+	t_node *n;
+
+	n = get_current_node();
+	--n->position;
+	if (n->position == -1)
+		n->position = n->len - 1;
 	//	printf("left arrow pressed\n");
 }
 
 void	rightarrow_pressed(void) {
+	t_node *n;
+
+	n = get_current_node();
+	++n->position;
+	if (n->position == n->len)
+		n->position = 0;
 	//	printf("right arrow pressed\n");
 }
 
@@ -427,29 +494,47 @@ void	esc_pressed(void) {
 	exit(0);
 }
 
+void	del_pressed(void) {
+	delete_node();
+}
+
+void	reinit_keys(t_keyhooks *k) {
+	k[UPARROW].action = uparrow_pressed;
+	k[DOWNARROW].action = downarrow_pressed;
+	k[LEFTARROW].action = leftarrow_pressed;
+	k[RIGHTARROW].action = rightarrow_pressed;
+	k[ENTER].action = enter_pressed;
+	k[DEL].action = del_pressed;
+	k[ESC].action = esc_pressed;
+	k[PRINT].action = print_list;
+}
+
 void	init_keys(t_keyhooks t[KEYS_USED]) {
 	strcpy(t[UPARROW].s, UPARROW_CODE);
 	strcpy(t[DOWNARROW].s, DOWNARROW_CODE);
 	strcpy(t[LEFTARROW].s, LEFTARROW_CODE);
 	strcpy(t[RIGHTARROW].s, RIGHTARROW_CODE);
 	strcpy(t[ENTER].s, ENTER_CODE);
+	strcpy(t[DEL].s, DEL_CODE);
 	strcpy(t[ESC].s, ESC_CODE);
 	t[UPARROW].action = uparrow_pressed;
 	t[DOWNARROW].action = downarrow_pressed;
 	t[LEFTARROW].action = leftarrow_pressed;
 	t[RIGHTARROW].action = rightarrow_pressed;
 	t[ENTER].action = enter_pressed;
+	t[DEL].action = del_pressed;
 	t[ESC].action = esc_pressed;
+	t[PRINT].action = print_list;
 }
 
 void	keyboard_hook(char c[CHAR_BUFSIZE], t_keyhooks k[KEYS_USED]) {
 	int i;
 
-	i= 0;
+	i = 0;
 	while (i < KEYS_USED) {
 		if (strncmp(k[i].s, c, CHAR_BUFSIZE) == 0) {
 			k[i].action();
-			print_list(getlist_singleton(NULL));
+			k[PRINT].action();
 			return ;
 		}
 		++i;
@@ -478,18 +563,21 @@ int main(int ac, char **av) {
 
 	init_term_capabilities(caps);
 	init_keys(keys);
+	get_keyhookssingleton(keys);
 
 	l = make_list(ac, av);
 	getlist_singleton(l);
 	resizewindow();
+	//print_list();
 
 	handle_signals();
+	
+	bzero(c, CHAR_BUFSIZE);
 
-	while (1)
+	while (read(STDIN_FILENO, c, 4) != -1)
 	{
-		bzero(c, CHAR_BUFSIZE);
-		read(STDIN_FILENO, c, 4);
 		keyboard_hook(c, keys);
+		bzero(c, CHAR_BUFSIZE);
 	}
 
 	reset_input_mode(NULL);

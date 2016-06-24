@@ -21,6 +21,7 @@
 # define DOWNARROW_CODE "\33\133\102\0"
 # define RIGHTARROW_CODE "\33\133\103\0"
 # define LEFTARROW_CODE "\33\133\104\0"
+# define DEL_CODE "\33\133\63\176"
 # define ENTER_CODE "\12\0\0\0"
 # define ESC_CODE "\33\0\0\0"
 
@@ -50,8 +51,10 @@ enum {
 	LEFTARROW,
 	RIGHTARROW,
 	ENTER,
+	DEL,
 	ESC,
-	KEYS_USED
+	KEYS_USED,
+	PRINT
 };
 
 typedef struct 				s_keyhooks {
@@ -61,9 +64,11 @@ typedef struct 				s_keyhooks {
 
 typedef struct				s_node {
 		char			*data;
+		int				len;
 		struct s_node	*next;
 		struct s_node	*prev;
 		int				current_position;
+		int				position;
 		int				selected;
 }							t_node;	
 
@@ -73,6 +78,8 @@ typedef struct				s_list {
 		t_node		*current;
 }							t_list;	
 
+void init_term_capabilities(char *caps[USED]);
+t_node *get_current_node(void);
 void set_cursor_position(int pos_x, int pos_y);
 void resizewindow(void);
 void fatal(char *err_message, void *whats_wrong);
@@ -80,9 +87,11 @@ void reset_input_mode(struct termios *saved_attributes);
 void set_input_mode(struct termios *tattr);
 void sigtstp_handler(int s);
 int myputs(int n);
-void print_list(t_list *l);
+void print_list();
 void clearscreen(void);
 void highlight(void);
+void do_nothing(void);
+void reinit_keys(t_keyhooks *k);
 struct winsize *get_window_sizesingleton(struct winsize *w);
 t_list *getlist_singleton(t_list *l);
 
